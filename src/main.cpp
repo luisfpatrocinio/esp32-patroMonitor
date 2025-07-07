@@ -13,35 +13,71 @@ WebServer server(80);
 const char *ap_ssid = "PatroMonitor";
 const char *ap_password = "";
 
+// Variáveis para armazenar valores antigos e evitar redesenho desnecessário
+int oldCounter = -1;
+uint8_t oldRed = 0;
+uint8_t oldGreen = 0;
+uint8_t oldBlue = 0;
+int oldClients = -1; // Novo: armazena o número anterior de clientes conectados
+
+// Variáveis globais para RGB controlado pelo usuário
+uint8_t currentRed = 0;
+uint8_t currentGreen = 0;
+uint8_t currentBlue = 0;
+bool rgbManualMode = false; // Flag: false = automático, true = manual
+
 // --- Web Page
 void handleRoot()
 {
-    String html = R"rawliteral(
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <title>PatroMonitor</title>
-      <style>
-        body { background: #222; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
-        .header { background: #3186; padding: 20px 0; font-size: 2em; color: #fff; }
-        .content { margin: 40px auto; max-width: 400px; background: #333; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px #0008; }
-        .value { color: #FFD600; font-size: 1.5em; margin: 20px 0; }
-        .footer { margin-top: 40px; color: #aaa; font-size: 0.9em; }
-      </style>
-    </head>
-    <body>
-      <div class="header">PatroMonitor</div>
-      <div class="content">
-        <h2>Bem-vindo!</h2>
-        <p>Este é o painel do seu monitor ESP32.</p>
-        <div class="value">Status: <b>Online</b></div>
-      </div>
-      <div class="footer">&copy; 2024 PatroMonitor</div>
-    </body>
-    </html>
-  )rawliteral";
+    // Gera o HTML com os valores atuais de RGB
+    String html = "<!DOCTYPE html>\n";
+    html += "<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>PatroMonitor</title>\n";
+    html += "<style>body { background: #222; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }\n";
+    html += ".header { background: #3186; padding: 20px 0; font-size: 2em; color: #fff; }\n";
+    html += ".content { margin: 40px auto; max-width: 400px; background: #333; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px #0008; }\n";
+    html += ".value { color: #FFD600; font-size: 1.5em; margin: 20px 0; }\n";
+    html += ".footer { margin-top: 40px; color: #aaa; font-size: 0.9em; }\n";
+    html += ".slider { width: 80%; }\nlabel { display: block; margin-top: 20px; font-size: 1.1em; }\n.rgb-value { font-weight: bold; }\n";
+    html += "button { margin-top: 30px; padding: 10px 30px; font-size: 1.1em; background: #FFD600; color: #222; border: none; border-radius: 5px; cursor: pointer; }\n";
+    html += "button:hover { background: #FFC107; }\n</style>\n";
+    html += "<script>function updateValue(id, value) { document.getElementById(id + '-val').innerText = value; }</script>\n";
+    html += "</head>\n<body>\n";
+    html += "<div class=\"header\">PatroMonitor</div>\n";
+    html += "<div class=\"content\">\n<h2>Controle RGB</h2>\n";
+    html += "<form action=\"/setrgb\" method=\"get\">\n";
+    html += "<label for=\"red\">Red: <span class=\"rgb-value\" id=\"red-val\">" + String(currentRed) + "</span></label>\n";
+    html += "<input type=\"range\" min=\"0\" max=\"255\" value=\"" + String(currentRed) + "\" class=\"slider\" id=\"red\" name=\"red\" oninput=\"updateValue('red', this.value)\">\n";
+    html += "<label for=\"green\">Green: <span class=\"rgb-value\" id=\"green-val\">" + String(currentGreen) + "</span></label>\n";
+    html += "<input type=\"range\" min=\"0\" max=\"255\" value=\"" + String(currentGreen) + "\" class=\"slider\" id=\"green\" name=\"green\" oninput=\"updateValue('green', this.value)\">\n";
+    html += "<label for=\"blue\">Blue: <span class=\"rgb-value\" id=\"blue-val\">" + String(currentBlue) + "</span></label>\n";
+    html += "<input type=\"range\" min=\"0\" max=\"255\" value=\"" + String(currentBlue) + "\" class=\"slider\" id=\"blue\" name=\"blue\" oninput=\"updateValue('blue', this.value)\">\n";
+    html += "<br>\n<button type=\"submit\">Enviar</button>\n</form>\n";
+    html += "<div class=\"value\">Status: <b>Online</b></div>\n</div>\n";
+    html += "<div class=\"footer\">&copy; 2025 PatroMonitor</div>\n";
+    html += "</body>\n</html>\n";
     server.send(200, "text/html", html);
+}
+
+// Handler para receber os valores RGB do formulário
+void handleSetRGB()
+{
+    if (server.hasArg("red") && server.hasArg("green") && server.hasArg("blue"))
+    {
+        uint8_t r = server.arg("red").toInt();
+        uint8_t g = server.arg("green").toInt();
+        uint8_t b = server.arg("blue").toInt();
+        // Atualiza as variáveis globais
+        oldRed = 255; // força update
+        oldGreen = 255;
+        oldBlue = 255;
+        currentRed = r;
+        currentGreen = g;
+        currentBlue = b;
+        rgbManualMode = true; // Ativa modo manual
+    }
+    // Redireciona de volta para a página principal
+    server.sendHeader("Location", "/", true);
+    server.send(302, "text/plain", "");
 }
 
 void handleNotFound()
@@ -73,13 +109,6 @@ void updateTextValue(int x, int y, String oldValue, String newValue);
 // This constructor variant tells the library to handle SPI communication
 // by manually toggling the pins, ignoring the hardware SPI peripheral.
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
-
-// Variáveis para armazenar valores antigos e evitar redesenho desnecessário
-int oldCounter = -1;
-uint8_t oldRed = 0;
-uint8_t oldGreen = 0;
-uint8_t oldBlue = 0;
-int oldClients = -1; // Novo: armazena o número anterior de clientes conectados
 
 void WebServerTask(void *pvParameters)
 {
@@ -116,7 +145,7 @@ void setup()
 
     // Main Page
     server.on("/", handleRoot);
-    // server.on("/save", handleSave);
+    server.on("/setrgb", handleSetRGB);
     server.onNotFound(handleNotFound);
 
     // Start Web Server
@@ -129,60 +158,48 @@ void setup()
 
 void loop()
 {
-    // --- Update logic ---
     static int counter = 0;
     counter++;
-
-    // Calculate new colors
-    uint8_t currentRed = 127 + sin(counter / 20.0) * 128;
-    uint8_t currentGreen = 127 + cos(counter / 30.0) * 128;
-    uint8_t currentBlue = 127 + sin(counter / 40.0) * 128;
-    uint16_t newColor = tft.color565(currentRed, currentGreen, currentBlue);
-
-    // --- Smart screen update ---
-    // The magic happens here: we only redraw the values that actually changed.
-
-    // Update the counter
+    // Se não estiver no modo manual, atualiza RGB automaticamente
+    if (!rgbManualMode)
+    {
+        currentRed = 127 + sin(counter / 20.0) * 128;
+        currentGreen = 127 + cos(counter / 30.0) * 128;
+        currentBlue = 127 + sin(counter / 40.0) * 128;
+    }
+    // Atualiza o display apenas se os valores mudarem
     if (counter != oldCounter)
     {
         updateTextValue(100, 80, String(oldCounter), String(counter));
         oldCounter = counter;
     }
-
-    // Update the Red value
     if (currentRed != oldRed)
     {
         updateTextValue(100, 110, String(oldRed), String(currentRed));
         oldRed = currentRed;
     }
-
-    // Update the Green value
     if (currentGreen != oldGreen)
     {
         updateTextValue(100, 140, String(oldGreen), String(currentGreen));
         oldGreen = currentGreen;
     }
-
-    // Update the Blue value
     if (currentBlue != oldBlue)
     {
         updateTextValue(100, 170, String(oldBlue), String(currentBlue));
         oldBlue = currentBlue;
     }
-
-    // Novo: Atualiza o número de clientes conectados
+    // Atualiza o preview da cor
+    uint16_t newColor = tft.color565(currentRed, currentGreen, currentBlue);
+    tft.fillRect(200, 80, 100, 120, newColor);
+    tft.drawRect(200, 80, 100, 120, BORDER_COLOR);
+    // Atualiza o número de clientes conectados
     int clients = WiFi.softAPgetStationNum();
     if (clients != oldClients)
     {
         updateTextValue(100, 200, String(oldClients), String(clients));
         oldClients = clients;
     }
-
-    // Update the color preview rectangle
-    tft.fillRect(200, 80, 100, 120, newColor);
-    tft.drawRect(200, 80, 100, 120, BORDER_COLOR); // Draw a border for emphasis
-
-    delay(20); // Keep the animation smooth
+    delay(50);
 }
 
 /**
