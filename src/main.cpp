@@ -3,6 +3,53 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 
+// --- Wi-fi Setup
+#include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+const byte DNS_PORT = 53;
+DNSServer dnsServer;
+WebServer server(80);
+const char *ap_ssid = "PatroMonitor";
+const char *ap_password = "";
+
+// --- Web Page
+void handleRoot()
+{
+    String html = R"rawliteral(
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>PatroMonitor</title>
+      <style>
+        body { background: #222; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
+        .header { background: #3186; padding: 20px 0; font-size: 2em; color: #fff; }
+        .content { margin: 40px auto; max-width: 400px; background: #333; border-radius: 10px; padding: 30px; box-shadow: 0 0 10px #0008; }
+        .value { color: #FFD600; font-size: 1.5em; margin: 20px 0; }
+        .footer { margin-top: 40px; color: #aaa; font-size: 0.9em; }
+      </style>
+    </head>
+    <body>
+      <div class="header">PatroMonitor</div>
+      <div class="content">
+        <h2>Bem-vindo!</h2>
+        <p>Este é o painel do seu monitor ESP32.</p>
+        <div class="value">Status: <b>Online</b></div>
+      </div>
+      <div class="footer">&copy; 2024 PatroMonitor</div>
+    </body>
+    </html>
+  )rawliteral";
+    server.send(200, "text/html", html);
+}
+
+void handleNotFound()
+{
+    server.sendHeader("Location", "/", true); // Redireciona para "/"
+    server.send(302, "text/plain", "");
+}
+
 // --- Pin definitions for ESP32 ---
 #define TFT_DC 2
 #define TFT_CS 5
@@ -27,11 +74,22 @@ void updateTextValue(int x, int y, String oldValue, String newValue);
 // by manually toggling the pins, ignoring the hardware SPI peripheral.
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_RST);
 
-// Variables to store old values and avoid redrawing what hasn't changed
+// Variáveis para armazenar valores antigos e evitar redesenho desnecessário
 int oldCounter = -1;
 uint8_t oldRed = 0;
 uint8_t oldGreen = 0;
 uint8_t oldBlue = 0;
+int oldClients = -1; // Novo: armazena o número anterior de clientes conectados
+
+void WebServerTask(void *pvParameters)
+{
+    while (true)
+    {
+        dnsServer.processNextRequest();
+        server.handleClient();
+        vTaskDelay(1);
+    }
+}
 
 void setup()
 {
@@ -46,6 +104,27 @@ void setup()
 
     // --- Draw the static UI ONCE ---
     drawStaticUI();
+
+    // --- Wi-Fi Setup ---
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(ap_ssid, ap_password);
+    Serial.print("[AP] Access Point iniciado. IP: ");
+    Serial.println(WiFi.softAPIP());
+
+    // Initialize DNS to redirect all requests to the ESP
+    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+
+    // Main Page
+    server.on("/", handleRoot);
+    // server.on("/save", handleSave);
+    server.onNotFound(handleNotFound);
+
+    // Start Web Server
+    server.begin();
+    Serial.println("[AP] Servidor web iniciado.");
+
+    // Create task for Web Server at Core 0
+    xTaskCreatePinnedToCore(WebServerTask, "WebServerTask", 4096, NULL, 1, NULL, 0);
 }
 
 void loop()
@@ -91,6 +170,14 @@ void loop()
         oldBlue = currentBlue;
     }
 
+    // Novo: Atualiza o número de clientes conectados
+    int clients = WiFi.softAPgetStationNum();
+    if (clients != oldClients)
+    {
+        updateTextValue(100, 200, String(oldClients), String(clients));
+        oldClients = clients;
+    }
+
     // Update the color preview rectangle
     tft.fillRect(200, 80, 100, 120, newColor);
     tft.drawRect(200, 80, 100, 120, BORDER_COLOR); // Draw a border for emphasis
@@ -128,6 +215,10 @@ void drawStaticUI()
 
     tft.setCursor(10, 170);
     tft.print("Blue:");
+
+    // Novo: Label para número de clientes conectados
+    tft.setCursor(10, 200);
+    tft.print("Clients:");
 
     // Color preview label
     tft.setCursor(200, 60);
