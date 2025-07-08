@@ -167,36 +167,40 @@ void loop()
         currentGreen = 127 + cos(counter / 30.0) * 128;
         currentBlue = 127 + sin(counter / 40.0) * 128;
     }
+
     // Atualiza o display apenas se os valores mudarem
+    int _textX = 110;
     if (counter != oldCounter)
     {
-        updateTextValue(100, 80, String(oldCounter), String(counter));
+        updateTextValue(_textX, 80, String(oldCounter), String(counter));
         oldCounter = counter;
     }
     if (currentRed != oldRed)
     {
-        updateTextValue(100, 110, String(oldRed), String(currentRed));
+        updateTextValue(_textX, 110, String(oldRed), String(currentRed));
         oldRed = currentRed;
     }
     if (currentGreen != oldGreen)
     {
-        updateTextValue(100, 140, String(oldGreen), String(currentGreen));
+        updateTextValue(_textX, 140, String(oldGreen), String(currentGreen));
         oldGreen = currentGreen;
     }
     if (currentBlue != oldBlue)
     {
-        updateTextValue(100, 170, String(oldBlue), String(currentBlue));
+        updateTextValue(_textX, 170, String(oldBlue), String(currentBlue));
         oldBlue = currentBlue;
     }
+
     // Atualiza o preview da cor
     uint16_t newColor = tft.color565(currentRed, currentGreen, currentBlue);
     tft.fillRect(200, 80, 100, 120, newColor);
     tft.drawRect(200, 80, 100, 120, BORDER_COLOR);
+
     // Atualiza o número de clientes conectados
     int clients = WiFi.softAPgetStationNum();
     if (clients != oldClients)
     {
-        updateTextValue(100, 200, String(oldClients), String(clients));
+        updateTextValue(_textX, 200, String(oldClients), String(clients));
         oldClients = clients;
     }
     delay(50);
